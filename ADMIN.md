@@ -1,3 +1,11 @@
+# todo list
+ - connect API to buoy fetching
+ - connect IOS widget to the API, remove client-side buoy fetch logic
+ - deploy the API to prod server
+ - build redis cache
+ - release the app to the app store
+ - build widget options (configure widget outside of ios app)
+
 # create venv
 python3 -m venv venv
 
