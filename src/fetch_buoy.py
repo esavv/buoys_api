@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
-import sys
 import requests
+import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 SPEC_URL_TEMPLATE = "https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.spec"
 FEET_PER_METER = 3.28084
@@ -37,6 +39,24 @@ def parse_latest_observation(spec_text: str):
     swell_height_meters = token_for("SwH")
     swell_period = token_for("SwP")
     swell_direction = token_for("SwD")
+    year_token = token_for("YY")
+    month_token = token_for("MM")
+    day_token = token_for("DD")
+    hour_token = token_for("hh")
+    minute_token = token_for("mm")
+
+    timestamp_display = "Unknown"
+    observation_time = datetime(
+        int(year_token),
+        int(month_token),
+        int(day_token),
+        int(hour_token),
+        int(minute_token),
+        tzinfo=ZoneInfo("UTC"),
+    )
+    local_time = observation_time.astimezone(ZoneInfo("America/New_York"))
+    timestamp_display = local_time.strftime("%I:%M %p %Z").lstrip("0")
+    timestamp_display = timestamp_display.replace("AM", "am").replace("PM", "pm")
 
     wave_height_display = "N/A"
     if wave_height_meters and wave_height_meters != "MM":
@@ -62,6 +82,7 @@ def parse_latest_observation(spec_text: str):
     )
 
     return (
+        timestamp_display,
         wave_height_display,
         swell_height_display,
         swell_period_display,
@@ -91,7 +112,8 @@ def main(argv: list[str]) -> int:
         print(error)
         return 3
 
-    wave_height, swell_height, swell_period, swell_direction = observation
+    timestamp, wave_height, swell_height, swell_period, swell_direction = observation
+    print(f"Last Updated:     {timestamp}")
     print(f"Sig. Wave Height: {wave_height} ft")
     print(f"Swell Height:     {swell_height} ft")
     print(f"Swell Period:     {swell_period} s")
