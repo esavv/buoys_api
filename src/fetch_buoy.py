@@ -60,19 +60,13 @@ def parse_latest_observation(spec_text: str):
 
     wave_height_display = "N/A"
     if wave_height_meters and wave_height_meters != "MM":
-        try:
-            wave_height_feet = float(wave_height_meters) * FEET_PER_METER
-            wave_height_display = f"{wave_height_feet:.1f}"
-        except ValueError:
-            wave_height_display = wave_height_meters
+        wave_height_feet = float(wave_height_meters) * FEET_PER_METER
+        wave_height_display = f"{wave_height_feet:.1f}"
 
     swell_height_display = "N/A"
     if swell_height_meters and swell_height_meters != "MM":
-        try:
-            swell_height_feet = float(swell_height_meters) * FEET_PER_METER
-            swell_height_display = f"{swell_height_feet:.1f}"
-        except ValueError:
-            swell_height_display = swell_height_meters
+        swell_height_feet = float(swell_height_meters) * FEET_PER_METER
+        swell_height_display = f"{swell_height_feet:.1f}"
 
     swell_period_display = (
         swell_period if swell_period and swell_period != "MM" else "N/A"
