@@ -107,9 +107,9 @@ def get_buoy_reading(buoy_id: str) -> dict:
     return {
         "status": "success",
         "last_updated": timestamp,
-        "sig_wave_height": f"{wave_height} ft",
-        "swell_height": f"{swell_height} ft",
-        "swell_period": f"{swell_period} s",
+        "sig_wave_height_ft": wave_height,
+        "swell_height_ft": swell_height,
+        "swell_period_s": swell_period,
         "swell_direction": swell_direction,
     }
 
