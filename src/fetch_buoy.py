@@ -83,6 +83,36 @@ def parse_latest_observation(spec_text: str):
         swell_direction_display,
     ), None
 
+def get_buoy_reading(buoy_id: str) -> dict:
+    """
+    Fetch and parse the latest observation for a buoy.
+    Returns a dict with status and data, or status and error_msg.
+    """
+    try:
+        spec_text = fetch_spec(buoy_id)
+    except requests.RequestException as exc:
+        return {
+            "status": "error",
+            "error_msg": f"Failed to fetch data for buoy {buoy_id}: {exc}",
+        }
+
+    observation, error = parse_latest_observation(spec_text)
+    if error:
+        return {
+            "status": "error",
+            "error_msg": error,
+        }
+
+    timestamp, wave_height, swell_height, swell_period, swell_direction = observation
+    return {
+        "status": "success",
+        "last_updated": timestamp,
+        "sig_wave_height": f"{wave_height} ft",
+        "swell_height": f"{swell_height} ft",
+        "swell_period": f"{swell_period} s",
+        "swell_direction": swell_direction,
+    }
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         script_name = Path(argv[0]).name if argv else "fetch_buoy.py"
