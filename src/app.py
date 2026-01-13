@@ -1,6 +1,7 @@
 import logging
 import os
 
+from cachetools import TTLCache
 from flask import Flask, jsonify, request
 
 from fetch_buoy import get_buoy_reading
@@ -9,6 +10,9 @@ app = Flask(__name__)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+
+# Cache: max 100 entries, 15 minute TTL
+cache = TTLCache(maxsize=100, ttl=900)
 
 @app.route("/buoy", methods=["GET"])
 def buoy():
@@ -24,13 +28,22 @@ def buoy():
 
     app.logger.info(f"Request: buoy_id={buoy_id}")
 
+    # Check cache
+    if buoy_id in cache:
+        app.logger.info(f"Cache HIT: buoy_id={buoy_id}")
+        return jsonify(cache[buoy_id])
+
+    # Cache miss - fetch from NOAA
+    app.logger.info(f"Cache MISS: buoy_id={buoy_id}")
     response = get_buoy_reading(buoy_id)
 
     if response["status"] == "error":
         app.logger.warning(f"Response: buoy_id={buoy_id} status=error msg={response.get('error_msg')}")
         return jsonify(response), 502
 
-    app.logger.info(f"Response: buoy_id={buoy_id} status=success")
+    # Cache successful responses only
+    cache[buoy_id] = response
+    app.logger.info(f"Response: buoy_id={buoy_id} status=success (cached)")
     return jsonify(response)
 
 if __name__ == "__main__":
