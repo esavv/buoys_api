@@ -1,5 +1,5 @@
 # todo list
- - build simple cache (15 min ttl, lru eviction)
+ - minor widget reformatting
  - release the app to the app store
  - build widget options (configure widget outside of ios app)
 
