@@ -23,3 +23,9 @@ curl https://api.buoy-data.com/buoy?id=44065 | jq
 
 # ssh into api ec2 instance
 ssh -i aws_ec2.pem ubuntu@ec2-3-94-191-77.compute-1.amazonaws.com
+
+# restart the prod api
+sudo systemctl restart buoys-api
+
+# watch prod api logs
+sudo journalctl -u buoys-api -f
