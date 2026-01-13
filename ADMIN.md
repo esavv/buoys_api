@@ -1,8 +1,5 @@
 # todo list
- - connect API to buoy fetching
- - connect IOS widget to the API, remove client-side buoy fetch logic
- - deploy the API to prod server
- - build redis cache
+ - build simple cache (15 min ttl, lru eviction)
  - release the app to the app store
  - build widget options (configure widget outside of ios app)
 
@@ -20,3 +17,9 @@ Apple AirPlay Receiver listens on port 5000. While testing, disable it by naviga
 
 # query api locally:
 curl -X GET http://localhost:5000/buoy?id=44065
+
+# query api in prod
+curl https://api.buoy-data.com/buoy?id=44065 | jq
+
+# ssh into api ec2 instance
+ssh -i aws_ec2.pem ubuntu@ec2-3-94-191-77.compute-1.amazonaws.com
