@@ -29,3 +29,6 @@ sudo systemctl restart buoys-api
 
 # watch prod api logs
 sudo journalctl -u buoys-api -f
+
+# review last 100 logs
+sudo journalctl -u buoys-api -n 100
