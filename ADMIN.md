@@ -1,8 +1,3 @@
-# todo list
- - minor widget reformatting
- - release the app to the app store
- - build widget options (configure widget outside of ios app)
-
 # create venv
 python3 -m venv venv
 
