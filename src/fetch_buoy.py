@@ -54,6 +54,7 @@ def parse_latest_observation(spec_text: str):
         int(minute_token),
         tzinfo=ZoneInfo("UTC"),
     )
+    observation_time_iso = observation_time.strftime("%Y-%m-%dT%H:%M:%SZ")
     local_time = observation_time.astimezone(ZoneInfo("America/New_York"))
     timestamp_display = local_time.strftime("%I:%M %p %Z").lstrip("0")
     timestamp_display = timestamp_display.replace("AM", "am").replace("PM", "pm")
@@ -77,6 +78,7 @@ def parse_latest_observation(spec_text: str):
 
     return (
         timestamp_display,
+        observation_time_iso,
         wave_height_display,
         swell_height_display,
         swell_period_display,
@@ -103,10 +105,11 @@ def get_buoy_reading(buoy_id: str) -> dict:
             "error_msg": error,
         }
 
-    timestamp, wave_height, swell_height, swell_period, swell_direction = observation
+    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction = observation
     return {
         "status": "success",
         "last_updated": timestamp,
+        "observation_time": observation_time_iso,
         "sig_wave_height_ft": wave_height,
         "swell_height_ft": swell_height,
         "swell_period_s": swell_period,
@@ -136,8 +139,9 @@ def main(argv: list[str]) -> int:
         print(error)
         return 3
 
-    timestamp, wave_height, swell_height, swell_period, swell_direction = observation
+    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction = observation
     print(f"Last Updated:     {timestamp}")
+    print(f"Observation Time: {observation_time_iso}")
     print(f"Sig. Wave Height: {wave_height} ft")
     print(f"Swell Height:     {swell_height} ft")
     print(f"Swell Period:     {swell_period} s")
