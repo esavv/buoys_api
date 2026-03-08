@@ -10,10 +10,13 @@ python3 app.py
 # ensure port 5000 is available:
 Apple AirPlay Receiver listens on port 5000. While testing, disable it by navigating to: System Settings > General > AirDrop & Handoff > AirPlay Receiver (requires pw to change)
 
-# query api locally:
-curl -X GET http://localhost:5000/buoy?id=44065
+# query buoys api locally:
+curl -X GET http://localhost:5000/buoy?id=44065 | jq
 
-# query api in prod
+# query stations api locally:
+curl http://localhost:5000/stations | jq | head -30
+
+# query buoys api in prod
 curl https://api.buoy-data.com/buoy?id=44065 | jq
 
 # ssh into api ec2 instance
