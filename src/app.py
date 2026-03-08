@@ -18,6 +18,25 @@ buoy_cache = TTLCache(maxsize=100, ttl=900)
 # Stations cache: single entry, 24 hour TTL
 stations_cache = TTLCache(maxsize=1, ttl=86400)
 
+def get_station_name(buoy_id: str) -> str | None:
+    """Look up a station name from the stations cache, fetching if needed."""
+    cache_key = "all"
+    if cache_key not in stations_cache:
+        app.logger.info("Stations cache cold — fetching for name lookup")
+        result = get_stations()
+        if result["status"] == "success":
+            stations_cache[cache_key] = result
+
+    cached = stations_cache.get(cache_key)
+    if not cached:
+        return None
+
+    for station in cached.get("stations", []):
+        if station["id"] == buoy_id:
+            return station["name"]
+    return None
+
+
 @app.route("/buoy", methods=["GET"])
 def buoy():
     buoy_id = request.args.get("id")
@@ -44,6 +63,8 @@ def buoy():
     if response["status"] == "error":
         app.logger.warning(f"Response: buoy_id={buoy_id} status=error msg={response.get('error_msg')}")
         return jsonify(response), 502
+
+    response["name"] = get_station_name(buoy_id)
 
     # Cache successful responses only
     buoy_cache[buoy_id] = response
