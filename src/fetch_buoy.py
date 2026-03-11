@@ -7,10 +7,17 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 SPEC_URL_TEMPLATE = "https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.spec"
+TXT_URL_TEMPLATE = "https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.txt"
 FEET_PER_METER = 3.28084
 
 def fetch_spec(buoy_id: str) -> str:
     url = SPEC_URL_TEMPLATE.format(buoy_id=buoy_id)
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return response.text
+
+def fetch_txt(buoy_id: str) -> str:
+    url = TXT_URL_TEMPLATE.format(buoy_id=buoy_id)
     response = requests.get(url, timeout=10)
     response.raise_for_status()
     return response.text
@@ -39,6 +46,7 @@ def parse_latest_observation(spec_text: str):
     swell_height_meters = token_for("SwH")
     swell_period = token_for("SwP")
     swell_direction = token_for("SwD")
+    mean_swell_direction_deg = token_for("MWD")
     year_token = token_for("YY")
     month_token = token_for("MM")
     day_token = token_for("DD")
@@ -75,6 +83,9 @@ def parse_latest_observation(spec_text: str):
     swell_direction_display = (
         swell_direction if swell_direction and swell_direction != "MM" else "N/A"
     )
+    mean_swell_direction_display = (
+        mean_swell_direction_deg if mean_swell_direction_deg and mean_swell_direction_deg != "MM" else "N/A"
+    )
 
     return (
         timestamp_display,
@@ -83,7 +94,38 @@ def parse_latest_observation(spec_text: str):
         swell_height_display,
         swell_period_display,
         swell_direction_display,
+        mean_swell_direction_display,
     ), None
+
+
+def parse_txt_temps(txt_text: str) -> tuple[str | None, str | None]:
+    """
+    Parse ATMP and WTMP from NDBC realtime2 .txt (first data row).
+    Returns (water_temp_c, air_temp_c); each is a string or None if missing/invalid.
+    """
+    lines = [line.strip() for line in txt_text.splitlines() if line.strip()]
+    header_line = next((line for line in lines if line.startswith("#")), None)
+    data_lines = [line for line in lines if not line.startswith("#")]
+
+    if not header_line or not data_lines:
+        return None, None
+
+    header_tokens = header_line.lstrip("#").split()
+    latest_tokens = data_lines[0].split()
+
+    def token_for(column: str) -> str | None:
+        if column not in header_tokens:
+            return None
+        idx = header_tokens.index(column)
+        if idx >= len(latest_tokens):
+            return None
+        val = latest_tokens[idx]
+        return val if val and val != "MM" else None
+
+    air_temp_c = token_for("ATMP")
+    water_temp_c = token_for("WTMP")
+    return water_temp_c, air_temp_c
+
 
 def get_buoy_reading(buoy_id: str) -> dict:
     """
@@ -105,7 +147,21 @@ def get_buoy_reading(buoy_id: str) -> dict:
             "error_msg": error,
         }
 
-    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction = observation
+    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction, mean_swell_direction = observation
+
+    # Optional: fetch temps from .txt (don't fail the whole request if .txt is missing or errors)
+    water_temp_c = "N/A"
+    air_temp_c = "N/A"
+    try:
+        txt_text = fetch_txt(buoy_id)
+        wtmp, atmp = parse_txt_temps(txt_text)
+        if wtmp is not None:
+            water_temp_c = wtmp
+        if atmp is not None:
+            air_temp_c = atmp
+    except requests.RequestException:
+        pass
+
     return {
         "status": "success",
         "last_updated": timestamp,
@@ -114,6 +170,9 @@ def get_buoy_reading(buoy_id: str) -> dict:
         "swell_height_ft": swell_height,
         "swell_period_s": swell_period,
         "swell_direction": swell_direction,
+        "mean_swell_direction_deg": mean_swell_direction,
+        "water_temp_c": water_temp_c,
+        "air_temp_c": air_temp_c,
     }
 
 def main(argv: list[str]) -> int:
@@ -139,13 +198,21 @@ def main(argv: list[str]) -> int:
         print(error)
         return 3
 
-    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction = observation
+    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction, mean_swell_direction = observation
     print(f"Last Updated:     {timestamp}")
     print(f"Observation Time: {observation_time_iso}")
     print(f"Sig. Wave Height: {wave_height} ft")
     print(f"Swell Height:     {swell_height} ft")
     print(f"Swell Period:     {swell_period} s")
     print(f"Swell Direction:  {swell_direction}")
+    print(f"Mean Swell Dir.:  {mean_swell_direction}°")
+    try:
+        txt_text = fetch_txt(buoy_id)
+        water_temp_c, air_temp_c = parse_txt_temps(txt_text)
+        print(f"Water Temp:       {water_temp_c or 'N/A'}°C")
+        print(f"Air Temp:         {air_temp_c or 'N/A'}°C")
+    except requests.RequestException as e:
+        print(f"Temps (from .txt): fetch failed ({e})")
     return 0
 
 if __name__ == "__main__":
