@@ -46,7 +46,7 @@ def parse_latest_observation(spec_text: str):
     swell_height_meters = token_for("SwH")
     swell_period = token_for("SwP")
     swell_direction = token_for("SwD")
-    mean_swell_direction_deg = token_for("MWD")
+    mean_wave_direction_deg = token_for("MWD")
     year_token = token_for("YY")
     month_token = token_for("MM")
     day_token = token_for("DD")
@@ -83,8 +83,8 @@ def parse_latest_observation(spec_text: str):
     swell_direction_display = (
         swell_direction if swell_direction and swell_direction != "MM" else "N/A"
     )
-    mean_swell_direction_display = (
-        mean_swell_direction_deg if mean_swell_direction_deg and mean_swell_direction_deg != "MM" else "N/A"
+    mean_wave_direction_display = (
+        mean_wave_direction_deg if mean_wave_direction_deg and mean_wave_direction_deg != "MM" else "N/A"
     )
 
     return (
@@ -94,7 +94,7 @@ def parse_latest_observation(spec_text: str):
         swell_height_display,
         swell_period_display,
         swell_direction_display,
-        mean_swell_direction_display,
+        mean_wave_direction_display,
     ), None
 
 
@@ -147,7 +147,7 @@ def get_buoy_reading(buoy_id: str) -> dict:
             "error_msg": error,
         }
 
-    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction, mean_swell_direction = observation
+    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction, mean_wave_direction = observation
 
     # Optional: fetch temps from .txt (don't fail the whole request if .txt is missing or errors)
     water_temp_c = "N/A"
@@ -170,7 +170,7 @@ def get_buoy_reading(buoy_id: str) -> dict:
         "swell_height_ft": swell_height,
         "swell_period_s": swell_period,
         "swell_direction": swell_direction,
-        "mean_swell_direction_deg": mean_swell_direction,
+        "mean_wave_direction_deg": mean_wave_direction,
         "water_temp_c": water_temp_c,
         "air_temp_c": air_temp_c,
     }
@@ -198,14 +198,14 @@ def main(argv: list[str]) -> int:
         print(error)
         return 3
 
-    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction, mean_swell_direction = observation
+    timestamp, observation_time_iso, wave_height, swell_height, swell_period, swell_direction, mean_wave_direction = observation
     print(f"Last Updated:     {timestamp}")
     print(f"Observation Time: {observation_time_iso}")
     print(f"Sig. Wave Height: {wave_height} ft")
     print(f"Swell Height:     {swell_height} ft")
     print(f"Swell Period:     {swell_period} s")
     print(f"Swell Direction:  {swell_direction}")
-    print(f"Mean Swell Dir.:  {mean_swell_direction}°")
+    print(f"Mean Wave Dir.:   {mean_wave_direction}°")
     try:
         txt_text = fetch_txt(buoy_id)
         water_temp_c, air_temp_c = parse_txt_temps(txt_text)
