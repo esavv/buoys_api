@@ -6,6 +6,7 @@ After=network.target
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/buoys_api/src
+EnvironmentFile=/home/ubuntu/buoys_api/.env
 ExecStart=/home/ubuntu/buoys_api/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 app:app
 Restart=always
 RestartSec=5
