@@ -104,9 +104,12 @@ def stations():
     return jsonify(response)
 
 
+TRACKED_ENDPOINTS = {"/buoy", "/stations"}
+
+
 @app.after_request
 def track_request(response):
-    if not posthog:
+    if not posthog or request.path not in TRACKED_ENDPOINTS:
         return response
 
     client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
