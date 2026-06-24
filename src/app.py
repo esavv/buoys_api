@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from posthog import Posthog
 
-from fetch_buoy import get_buoy_reading
+from fetch_buoy import get_buoy_history, get_buoy_reading
 from fetch_stations import get_stations
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -25,6 +25,9 @@ else:
 
 # Cache: max 100 entries, 15 minute TTL
 buoy_cache = TTLCache(maxsize=100, ttl=900)
+
+# History cache: max 100 entries, 15 minute TTL
+buoy_history_cache = TTLCache(maxsize=100, ttl=900)
 
 # Stations cache: single entry, 24 hour TTL
 stations_cache = TTLCache(maxsize=1, ttl=86400)
@@ -83,6 +86,59 @@ def buoy():
     return jsonify(response)
 
 
+@app.route("/buoy/history", methods=["GET"])
+def buoy_history():
+    buoy_id = request.args.get("id")
+    hours_arg = request.args.get("hours", "24")
+
+    if not buoy_id:
+        app.logger.warning("History request missing 'id' parameter")
+        response = {
+            "status": "error",
+            "error_msg": "Missing required query parameter 'id'.",
+        }
+        return jsonify(response), 400
+
+    try:
+        hours = int(hours_arg)
+    except ValueError:
+        app.logger.warning(f"History request invalid hours: buoy_id={buoy_id} hours={hours_arg}")
+        response = {
+            "status": "error",
+            "error_msg": "Query parameter 'hours' must be a positive integer.",
+        }
+        return jsonify(response), 400
+
+    if hours is None or hours <= 0:
+        app.logger.warning(f"History request invalid hours: buoy_id={buoy_id} hours={hours_arg}")
+        response = {
+            "status": "error",
+            "error_msg": "Query parameter 'hours' must be a positive integer.",
+        }
+        return jsonify(response), 400
+
+    app.logger.info(f"History request: buoy_id={buoy_id} hours={hours}")
+    cache_key = f"{buoy_id}:{hours}"
+
+    if cache_key in buoy_history_cache:
+        app.logger.info(f"History cache HIT: buoy_id={buoy_id} hours={hours}")
+        g.cache_hit = True
+        return jsonify(buoy_history_cache[cache_key])
+
+    app.logger.info(f"History cache MISS: buoy_id={buoy_id} hours={hours}")
+    response = get_buoy_history(buoy_id, hours)
+
+    if response["status"] == "error":
+        app.logger.warning(f"History response: buoy_id={buoy_id} status=error msg={response.get('error_msg')}")
+        return jsonify(response), 502
+
+    response["name"] = get_station_name(buoy_id)
+
+    buoy_history_cache[cache_key] = response
+    app.logger.info(f"History response: buoy_id={buoy_id} hours={hours} status=success (cached)")
+    return jsonify(response)
+
+
 @app.route("/stations", methods=["GET"])
 def stations():
     cache_key = "all"
@@ -104,7 +160,7 @@ def stations():
     return jsonify(response)
 
 
-TRACKED_ENDPOINTS = {"/buoy", "/stations"}
+TRACKED_ENDPOINTS = {"/buoy", "/buoy/history", "/stations"}
 
 
 @app.after_request
@@ -126,7 +182,7 @@ def track_request(response):
         "user_agent": request.headers.get("User-Agent"),
     }
 
-    if request.path == "/buoy":
+    if request.path in {"/buoy", "/buoy/history"}:
         properties["station_id"] = request.args.get("id")
 
     posthog.capture(

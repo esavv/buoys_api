@@ -2,13 +2,33 @@
 
 import requests
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 SPEC_URL_TEMPLATE = "https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.spec"
 TXT_URL_TEMPLATE = "https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.txt"
 FEET_PER_METER = 3.28084
+MAX_WATER_TEMP_MATCH_DELTA = timedelta(minutes=30)
+
+CARDINAL_DEGREES = {
+    "N": 0,
+    "NNE": 22.5,
+    "NE": 45,
+    "ENE": 67.5,
+    "E": 90,
+    "ESE": 112.5,
+    "SE": 135,
+    "SSE": 157.5,
+    "S": 180,
+    "SSW": 202.5,
+    "SW": 225,
+    "WSW": 247.5,
+    "W": 270,
+    "WNW": 292.5,
+    "NW": 315,
+    "NNW": 337.5,
+}
 
 def fetch_spec(buoy_id: str) -> str:
     url = SPEC_URL_TEMPLATE.format(buoy_id=buoy_id)
@@ -125,6 +145,194 @@ def parse_txt_temps(txt_text: str) -> tuple[str | None, str | None]:
     air_temp_c = token_for("ATMP")
     water_temp_c = token_for("WTMP")
     return water_temp_c, air_temp_c
+
+
+def token_for(header_tokens: list[str], data_tokens: list[str], column: str) -> str | None:
+    if column not in header_tokens:
+        return None
+
+    index = header_tokens.index(column)
+    if index >= len(data_tokens):
+        return None
+
+    value = data_tokens[index]
+    return value if value and value != "MM" else None
+
+
+def parse_observation_time(header_tokens: list[str], data_tokens: list[str]) -> datetime | None:
+    try:
+        year = token_for(header_tokens, data_tokens, "YY")
+        month = token_for(header_tokens, data_tokens, "MM")
+        day = token_for(header_tokens, data_tokens, "DD")
+        hour = token_for(header_tokens, data_tokens, "hh")
+        minute = token_for(header_tokens, data_tokens, "mm")
+
+        if not all([year, month, day, hour, minute]):
+            return None
+
+        return datetime(
+            int(year),
+            int(month),
+            int(day),
+            int(hour),
+            int(minute),
+            tzinfo=ZoneInfo("UTC"),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def meters_to_feet(value: float | None) -> float | None:
+    if value is None:
+        return None
+
+    return round(value * FEET_PER_METER, 1)
+
+
+def clean_direction(value: str | None) -> str | None:
+    return value if value and value != "N/A" else None
+
+
+def direction_degrees(value: str | None) -> float | None:
+    if value is None:
+        return None
+
+    return CARDINAL_DEGREES.get(value.upper())
+
+
+def parse_spec_history(spec_text: str, hours: int) -> tuple[list[dict], str | None]:
+    lines = [line.strip() for line in spec_text.splitlines() if line.strip()]
+
+    header_line = next((line for line in lines if line.startswith("#")), None)
+    data_lines = [line for line in lines if not line.startswith("#")]
+
+    if not header_line or not data_lines:
+        return [], "No buoy data rows were returned."
+
+    header_tokens = header_line.lstrip("#").split()
+    cutoff = datetime.now(ZoneInfo("UTC")) - timedelta(hours=hours)
+    points = []
+
+    for line in data_lines:
+        data_tokens = line.split()
+        observation_time = parse_observation_time(header_tokens, data_tokens)
+        if observation_time is None:
+            continue
+
+        if observation_time < cutoff:
+            continue
+
+        swell_direction = clean_direction(token_for(header_tokens, data_tokens, "SwD"))
+
+        points.append({
+            "observation_time": observation_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "sig_wave_height_ft": meters_to_feet(parse_float(token_for(header_tokens, data_tokens, "WVHT"))),
+            "swell_height_ft": meters_to_feet(parse_float(token_for(header_tokens, data_tokens, "SwH"))),
+            "swell_period_s": parse_float(token_for(header_tokens, data_tokens, "SwP")),
+            "swell_direction": swell_direction,
+            "swell_direction_deg": direction_degrees(swell_direction),
+            "mean_wave_direction_deg": parse_float(token_for(header_tokens, data_tokens, "MWD")),
+            "_observation_datetime": observation_time,
+        })
+
+    if not points:
+        return [], "No buoy data rows were found for the requested time window."
+
+    points.sort(key=lambda point: point["_observation_datetime"])
+    return points, None
+
+
+def parse_txt_water_temp_history(txt_text: str, hours: int) -> list[tuple[datetime, float]]:
+    lines = [line.strip() for line in txt_text.splitlines() if line.strip()]
+
+    header_line = next((line for line in lines if line.startswith("#")), None)
+    data_lines = [line for line in lines if not line.startswith("#")]
+
+    if not header_line or not data_lines:
+        return []
+
+    header_tokens = header_line.lstrip("#").split()
+    cutoff = datetime.now(ZoneInfo("UTC")) - timedelta(hours=hours)
+    points = []
+
+    for line in data_lines:
+        data_tokens = line.split()
+        observation_time = parse_observation_time(header_tokens, data_tokens)
+        if observation_time is None or observation_time < cutoff:
+            continue
+
+        water_temp_c = parse_float(token_for(header_tokens, data_tokens, "WTMP"))
+        if water_temp_c is not None:
+            points.append((observation_time, water_temp_c))
+
+    return points
+
+
+def nearest_water_temp(
+    observation_time: datetime,
+    water_temp_points: list[tuple[datetime, float]],
+) -> float | None:
+    if not water_temp_points:
+        return None
+
+    nearest_time, nearest_temp = min(
+        water_temp_points,
+        key=lambda point: abs(point[0] - observation_time),
+    )
+
+    if abs(nearest_time - observation_time) > MAX_WATER_TEMP_MATCH_DELTA:
+        return None
+
+    return nearest_temp
+
+
+def get_buoy_history(buoy_id: str, hours: int = 24) -> dict:
+    """
+    Fetch and parse historical observations for a buoy.
+    Returns oldest-to-newest points for charting in the app.
+    """
+    try:
+        spec_text = fetch_spec(buoy_id)
+    except requests.RequestException as exc:
+        return {
+            "status": "error",
+            "error_msg": f"Failed to fetch data for buoy {buoy_id}: {exc}",
+        }
+
+    points, error = parse_spec_history(spec_text, hours)
+    if error:
+        return {
+            "status": "error",
+            "error_msg": error,
+        }
+
+    water_temp_points = []
+    try:
+        txt_text = fetch_txt(buoy_id)
+        water_temp_points = parse_txt_water_temp_history(txt_text, hours)
+    except requests.RequestException:
+        pass
+
+    for point in points:
+        observation_time = point.pop("_observation_datetime")
+        point["water_temp_c"] = nearest_water_temp(observation_time, water_temp_points)
+
+    return {
+        "status": "success",
+        "station_id": buoy_id,
+        "hours": hours,
+        "points": points,
+    }
 
 
 def get_buoy_reading(buoy_id: str) -> dict:
