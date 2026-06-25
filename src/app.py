@@ -32,11 +32,11 @@ buoy_history_cache = TTLCache(maxsize=100, ttl=900)
 # Stations cache: single entry, 24 hour TTL
 stations_cache = TTLCache(maxsize=1, ttl=86400)
 
-def get_station_name(buoy_id: str) -> str | None:
-    """Look up a station name from the stations cache, fetching if needed."""
+def get_station_metadata(buoy_id: str) -> dict | None:
+    """Look up station metadata from the stations cache, fetching if needed."""
     cache_key = "all"
     if cache_key not in stations_cache:
-        app.logger.info("Stations cache cold — fetching for name lookup")
+        app.logger.info("Stations cache cold — fetching for metadata lookup")
         result = get_stations()
         if result["status"] == "success":
             stations_cache[cache_key] = result
@@ -47,7 +47,7 @@ def get_station_name(buoy_id: str) -> str | None:
 
     for station in cached.get("stations", []):
         if station["id"] == buoy_id:
-            return station["name"]
+            return station
     return None
 
 
@@ -78,7 +78,11 @@ def buoy():
         app.logger.warning(f"Response: buoy_id={buoy_id} status=error msg={response.get('error_msg')}")
         return jsonify(response), 502
 
-    response["name"] = get_station_name(buoy_id)
+    station_metadata = get_station_metadata(buoy_id)
+    if station_metadata:
+        response["name"] = station_metadata.get("name")
+        response["lat"] = station_metadata.get("lat")
+        response["lon"] = station_metadata.get("lon")
 
     # Cache successful responses only
     buoy_cache[buoy_id] = response
@@ -132,7 +136,9 @@ def buoy_history():
         app.logger.warning(f"History response: buoy_id={buoy_id} status=error msg={response.get('error_msg')}")
         return jsonify(response), 502
 
-    response["name"] = get_station_name(buoy_id)
+    station_metadata = get_station_metadata(buoy_id)
+    if station_metadata:
+        response["name"] = station_metadata.get("name")
 
     buoy_history_cache[cache_key] = response
     app.logger.info(f"History response: buoy_id={buoy_id} hours={hours} status=success (cached)")
