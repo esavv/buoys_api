@@ -32,6 +32,75 @@ buoy_history_cache = TTLCache(maxsize=100, ttl=900)
 # Stations cache: single entry, 24 hour TTL
 stations_cache = TTLCache(maxsize=1, ttl=86400)
 
+TRACKED_ENDPOINTS = {"/buoy", "/buoy/history", "/stations"}
+ANALYTICS_EVENTS = {
+    "app opened",
+    "screen viewed",
+    "favorite added by id",
+    "favorite added from map",
+    "favorite removed",
+    "favorite reordered",
+    "add buoy opened",
+    "chart interacted",
+}
+CLIENT_SOURCES = {"ios_app", "ios_widget"}
+ANALYTICS_ID_HEADER = "X-Buoys-Analytics-ID"
+CLIENT_SOURCE_HEADER = "X-Buoys-Client"
+
+
+def get_client_ip() -> str | None:
+    client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    if client_ip and "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    return client_ip
+
+
+def get_client_source() -> str | None:
+    source = request.headers.get(CLIENT_SOURCE_HEADER)
+    return source if source in CLIENT_SOURCES else None
+
+
+def get_distinct_id(client_ip: str | None) -> str:
+    analytics_id = request.headers.get(ANALYTICS_ID_HEADER)
+    if analytics_id:
+        return analytics_id[:128]
+    return client_ip or "unknown"
+
+
+def sanitize_analytics_value(value):
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float, str)):
+        return value
+    if isinstance(value, list):
+        return [sanitize_analytics_value(item) for item in value[:20]]
+    if isinstance(value, dict):
+        return sanitize_analytics_properties(value)
+    return str(value)
+
+
+def sanitize_analytics_properties(properties: dict) -> dict:
+    sanitized = {}
+    for key, value in properties.items():
+        if len(sanitized) >= 50:
+            break
+        if not isinstance(key, str):
+            continue
+        sanitized[key[:80]] = sanitize_analytics_value(value)
+    return sanitized
+
+
+def capture_event(event: str, distinct_id: str, properties: dict) -> None:
+    if not posthog:
+        return
+
+    posthog.capture(
+        distinct_id=distinct_id,
+        event=event,
+        properties=properties,
+    )
+
+
 def get_station_metadata(buoy_id: str) -> dict | None:
     """Look up station metadata from the stations cache, fetching if needed."""
     cache_key = "all"
@@ -166,7 +235,38 @@ def stations():
     return jsonify(response)
 
 
-TRACKED_ENDPOINTS = {"/buoy", "/buoy/history", "/stations"}
+@app.route("/analytics/events", methods=["POST"])
+def analytics_events():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"status": "error", "error_msg": "Expected JSON object."}), 400
+
+    event = payload.get("event")
+    distinct_id = payload.get("distinct_id")
+    source = payload.get("source")
+    properties = payload.get("properties", {})
+
+    if event not in ANALYTICS_EVENTS:
+        return jsonify({"status": "error", "error_msg": "Unsupported analytics event."}), 400
+    if not isinstance(distinct_id, str) or not distinct_id.strip():
+        return jsonify({"status": "error", "error_msg": "Missing analytics distinct_id."}), 400
+    if source not in CLIENT_SOURCES:
+        return jsonify({"status": "error", "error_msg": "Unsupported analytics source."}), 400
+    if not isinstance(properties, dict):
+        return jsonify({"status": "error", "error_msg": "Analytics properties must be an object."}), 400
+
+    client_ip = get_client_ip()
+    event_properties = sanitize_analytics_properties(properties)
+    event_properties.update({
+        "source": source,
+        "client_source": source,
+        "ip": client_ip,
+        "$ip": client_ip,
+        "user_agent": request.headers.get("User-Agent"),
+    })
+
+    capture_event(event, distinct_id[:128], event_properties)
+    return jsonify({"status": "success"})
 
 
 @app.after_request
@@ -174,9 +274,9 @@ def track_request(response):
     if not posthog or request.path not in TRACKED_ENDPOINTS:
         return response
 
-    client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-    if client_ip and "," in client_ip:
-        client_ip = client_ip.split(",")[0].strip()
+    client_ip = get_client_ip()
+    client_source = get_client_source()
+    distinct_id = get_distinct_id(client_ip)
 
     properties = {
         "endpoint": request.path,
@@ -187,15 +287,16 @@ def track_request(response):
         "$ip": client_ip,
         "user_agent": request.headers.get("User-Agent"),
     }
+    if client_source:
+        properties["client_source"] = client_source
 
     if request.path in {"/buoy", "/buoy/history"}:
         properties["station_id"] = request.args.get("id")
 
-    posthog.capture(
-        distinct_id=client_ip or "unknown",
-        event="api_request",
-        properties=properties,
-    )
+    capture_event("api_request", distinct_id, properties)
+
+    if client_source == "ios_widget" and request.path == "/buoy":
+        capture_event("widget data fetched", distinct_id, properties)
 
     return response
 
