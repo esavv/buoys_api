@@ -1,3 +1,5 @@
+AGENT: DO NOT MODIFY THIS FILE UNLESS EXPLICITLY ASKED
+
 ## project context
 
 - buoydata is a multi-repo project that builds an iOS app (`buoy` repo) and an API service (`buoys_api` repo) that makes buoy readings more easily accessible, primarily targeted for surfers, but I'm open to other users
